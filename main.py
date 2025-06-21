@@ -5,6 +5,7 @@ import os
 from tkinter import Tk, filedialog
 import cv2
 import easyocr
+import numpy as np
 from datetime import datetime
 import csv
 
@@ -19,21 +20,31 @@ if not image_path:
     print("❌ Tidak ada gambar dipilih.")
     exit()
 
-# === 2. LOAD MODEL ===
+# === 2. PERSIAPAN FOLDER OUTPUT ===
+base_output_dir = "hasil_deteksi_output"
+crop_folder = os.path.join(base_output_dir, "crop")
+hd_folder = os.path.join(base_output_dir, "hd")
+threshold_folder = os.path.join(base_output_dir, "threshold")
+csv_file = os.path.join(base_output_dir, "hasil_deteksi.csv")
+
+os.makedirs(crop_folder, exist_ok=True)
+os.makedirs(hd_folder, exist_ok=True)
+os.makedirs(threshold_folder, exist_ok=True)
+
+# === 3. LOAD MODEL YOLO ===
 model = YOLO("runs2/detect/train/weights/best.pt")
 
-# === 3. PREDIKSI DENGAN YOLO ===
+# === 4. DETEKSI PLAT NOMOR ===
 results = model.predict(
-    source=image_path,
-    conf=0.25,
-    save=True,
+    source=image_path, 
+    conf=0.25, 
+    save=True, 
     device="cuda" if cv2.cuda.getCudaEnabledDeviceCount() > 0 else "cpu"
 )
 
-# === 4. TAMPILKAN HASIL DETEKSI ===
+# === 5. TAMPILKAN HASIL DETEKSI (opsional) ===
 save_dir = results[0].save_dir
 pred_images = [f for f in os.listdir(save_dir) if f.lower().endswith(('.jpg', '.png'))]
-
 if pred_images:
     img_path = os.path.join(save_dir, pred_images[0])
     img = Image.open(img_path)
@@ -41,110 +52,112 @@ if pred_images:
     plt.axis('off')
     plt.title("Hasil Deteksi YOLOv8")
     plt.show()
-else:
-    print("❌ Tidak ada gambar hasil deteksi ditemukan.")
-    exit()
 
-# === 5. OCR (EasyOCR + Preprocessing) ===
+# === 6. INISIALISASI OCR DAN CSV ===
 reader = easyocr.Reader(['en'], gpu=cv2.cuda.getCudaEnabledDeviceCount() > 0)
 img_cv = cv2.imread(image_path)
 
-print("\n📌 Hasil Pembacaan Teks Plat (Setelah Preprocessing):\n")
+csv_header = ["Tanggal", "Nama File", "Hasil YOLO", "Confidence YOLO",
+              "Path Crop", "Path HD", "Path Threshold",
+              "OCR dari HD", "Conf HD", "OCR dari Threshold", "Conf Threshold"]
 
-# Setup output CSV
-output_dir = "output_csv_log"
-os.makedirs(output_dir, exist_ok=True)
-csv_path = os.path.join(output_dir, "hasil_deteksi.csv")
-file_exists = os.path.isfile(csv_path)
+if not os.path.exists(csv_file):
+    with open(csv_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(csv_header)
 
-with open(csv_path, mode='a', newline='', encoding='utf-8') as file:
-    writer = csv.writer(file)
-    if not file_exists:
-        writer.writerow([
-            'datetime',
-            'image_name',
-            'yolo_label',
-            'yolo_confidence',
-            'crop_img',
-            'preproc_img',
-            'ocr_text',
-            'ocr_confidence'
-        ])
+# === 7. PROSES SETIAP BOX DETEKSI ===
+for i, box in enumerate(results[0].boxes):
+    x1, y1, x2, y2 = map(int, box.xyxy[0])
+    conf_yolo = float(box.conf[0])
+    cls = int(box.cls[0])
+    label = model.names[cls]
 
-    for i, box in enumerate(results[0].boxes):
-        x1, y1, x2, y2 = map(int, box.xyxy[0])
-        plate_crop = img_cv[y1:y2, x1:x2]
+    # Crop
+    plate_crop = img_cv[y1:y2, x1:x2]
+    crop_path = os.path.join(crop_folder, f"crop_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i+1}.png")
+    cv2.imwrite(crop_path, plate_crop)
 
-        # === PREPROCESSING ===
-        plate_gray = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2GRAY)
-        plate_blur = cv2.GaussianBlur(plate_gray, (3, 3), 0)
-        plate_thresh = cv2.adaptiveThreshold(
-            plate_blur, 255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 41, 15
-        )
-        h = plate_thresh.shape[0]
-        plate_thresh = plate_thresh[:int(h * 0.75), :]
-        plate_thresh = cv2.resize(plate_thresh, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    # === HD Enhancement ===
+    plate_upscaled = cv2.resize(plate_crop, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+    lab = cv2.cvtColor(plate_upscaled, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    l2 = clahe.apply(l)
+    lab = cv2.merge((l2, a, b))
+    plate_clahe = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    kernel_sharp = np.array([[0, -1, 0],
+                             [-1, 5,-1],
+                             [0, -1, 0]])
+    plate_hd = cv2.filter2D(plate_clahe, -1, kernel_sharp)
+    hd_path = os.path.join(hd_folder, f"hd_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i+1}.png")
+    cv2.imwrite(hd_path, plate_hd)
 
-        # === SIMPAN GAMBAR ===
-        crop_filename = f"crop_{i+1}_{os.path.basename(image_path)}"
-        preproc_filename = f"preproc_{i+1}_{os.path.basename(image_path)}"
-        cv2.imwrite(os.path.join(output_dir, crop_filename), plate_crop)
-        cv2.imwrite(os.path.join(output_dir, preproc_filename), plate_thresh)
+    # === Threshold
+    plate_gray = cv2.cvtColor(plate_hd, cv2.COLOR_BGR2GRAY)
+    plate_blur = cv2.GaussianBlur(plate_gray, (5, 5), 0)
+    plate_thresh = cv2.adaptiveThreshold(
+        plate_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY, 41, 15)
+    h = plate_thresh.shape[0]
+    plate_thresh = plate_thresh[:int(h * 0.75), :]
+    thresh_path = os.path.join(threshold_folder, f"thresh_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i+1}.png")
+    cv2.imwrite(thresh_path, plate_thresh)
 
-        # === TAMPILKAN CROP & PREPROC ===
-        plt.figure(figsize=(8, 3))
-        plt.subplot(1, 2, 1)
-        plt.imshow(cv2.cvtColor(plate_crop, cv2.COLOR_BGR2RGB))
-        plt.title(f'Crop Plat #{i+1}')
-        plt.axis('off')
+    # === OCR dari HD
+    texts_hd, confs_hd = [], []
+    for res in reader.readtext(plate_hd, detail=1):
+        if len(res) == 3:
+            _, text, conf = res
+            if conf > 0.5:
+                texts_hd.append(text)
+                confs_hd.append(conf)
+    ocr_text_hd = ' '.join(texts_hd)
+    conf_avg_hd = sum(confs_hd) / len(confs_hd) if confs_hd else 0
 
-        plt.subplot(1, 2, 2)
-        plt.imshow(plate_thresh, cmap='gray')
-        plt.title('Preprocessed')
-        plt.axis('off')
-        plt.tight_layout()
-        plt.show()
+    # === OCR dari Threshold
+    texts_t, confs_t = [], []
+    for res in reader.readtext(plate_thresh, detail=1):
+        if len(res) == 3:
+            _, text, conf = res
+            if conf > 0.5:
+                texts_t.append(text)
+                confs_t.append(conf)
+    ocr_text_thresh = ' '.join(texts_t)
+    conf_avg_thresh = sum(confs_t) / len(confs_t) if confs_t else 0
 
-        # === OCR EASYOCR ===
-        texts = []
-        confs = []
-        ocr_result = reader.readtext(plate_thresh, detail=1)
-        for result in ocr_result:
-            if len(result) == 3:
-                _, text, conf = result
-                if conf > 0.5:
-                    texts.append(text)
-                    confs.append(conf)
+    # === TAMPILKAN GAMBAR (crop, hd, threshold)
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 3, 1)
+    plt.imshow(cv2.cvtColor(plate_crop, cv2.COLOR_BGR2RGB))
+    plt.title(f"Crop #{i+1}")
+    plt.axis("off")
 
-        merged_text = ' '.join(texts)
-        avg_conf = sum(confs) / len(confs) if confs else 0
+    plt.subplot(1, 3, 2)
+    plt.imshow(cv2.cvtColor(plate_hd, cv2.COLOR_BGR2RGB))
+    plt.title("HD Enhanced")
+    plt.axis("off")
 
-        # === LABEL & CONFIDENCE YOLO ===
-        try:
-            class_id = int(results[0].boxes.cls[i])
-            label = results[0].names[class_id]
-        except:
-            label = "Unknown"
+    plt.subplot(1, 3, 3)
+    plt.imshow(plate_thresh, cmap='gray')
+    plt.title("Thresholded")
+    plt.axis("off")
+    plt.tight_layout()
+    plt.show()
 
-        try:
-            conf_yolo = float(results[0].boxes.conf[i])
-        except:
-            conf_yolo = 0.0
+    # === LOG KE TERMINAL
+    print(f"\n📌 Box #{i+1} | YOLO: {label} ({conf_yolo:.2f})")
+    print(f"🧾 OCR (HD): {ocr_text_hd} (Conf: {conf_avg_hd:.2f})")
+    print(f"🧾 OCR (Threshold): {ocr_text_thresh} (Conf: {conf_avg_thresh:.2f})")
 
-        # === SIMPAN KE CSV ===
+    # === SIMPAN CSV
+    with open(csv_file, mode='a', newline='') as file:
+        writer = csv.writer(file)
         writer.writerow([
             datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             os.path.basename(image_path),
-            label,
-            f"{conf_yolo:.2f}",
-            crop_filename,
-            preproc_filename,
-            merged_text,
-            f"{avg_conf:.2f}"
+            label, f"{conf_yolo:.2f}",
+            crop_path, hd_path, thresh_path,
+            ocr_text_hd, f"{conf_avg_hd:.2f}",
+            ocr_text_thresh, f"{conf_avg_thresh:.2f}"
         ])
-
-        # === CETAK KE TERMINAL ===
-        print(f"Teks Plat Terdeteksi: {merged_text} (Confidence: {avg_conf:.2f})\n")
-
