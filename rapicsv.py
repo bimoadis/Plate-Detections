@@ -2,14 +2,18 @@ import os
 import csv
 
 # File input dan output
-input_filename = 'D:\\PA-D4-LJ\\Plat-Nomor\\hasil_deteksi_output\\hasil_deteksi.csv'
-output_filename = 'hasil_deteksi_bersih2.csv'
+input_filename = 'D:\PA-D4-LJ\Plat-Nomor\hasil_deteksi_video\hasil_video.csv'
+output_filename = 'hasil.csv'
 
-# Header tetap 11 kolom
+# # Header tetap 11 kolom
+# correct_header = [
+#     "Tanggal", "Nama File", "Hasil YOLO", "Confidence YOLO", 
+#     "Path Crop", "Path HD", "Path Threshold", "OCR dari HD", 
+#     "Conf HD", "OCR dari Threshold", "Conf Threshold"
+# ]
+
 correct_header = [
-    "Tanggal", "Nama File", "Hasil YOLO", "Confidence YOLO", 
-    "Path Crop", "Path HD", "Path Threshold", "OCR dari HD", 
-    "Conf HD", "OCR dari Threshold", "Conf Threshold"
+    'Waktu','Frame','Label YOLO','Conf YOLO','Crop Path','HD Path','Threshold Path','OCR HD','Conf HD','OCR Threshold','Conf Threshold'
 ]
 
 RECORD_SIZE = len(correct_header)
