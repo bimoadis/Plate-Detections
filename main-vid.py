@@ -73,21 +73,21 @@ while True:
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         cnts, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        rotated = crop.copy()
-        if cnts:
-            all_cnt = np.vstack(cnts)
-            rect = cv2.minAreaRect(all_cnt)
-            angle = rect[-1]
-            if angle < -45:
-                angle = 90 + angle
-            elif angle > 45:
-                angle = angle - 90
-            h, w = crop.shape[:2]
-            M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
-            rotated = cv2.warpAffine(crop, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+        # rotated = crop.copy()
+        # if cnts:
+        #     all_cnt = np.vstack(cnts)
+        #     rect = cv2.minAreaRect(all_cnt)
+        #     angle = rect[-1]
+        #     if angle < -45:
+        #         angle = 90 + angle
+        #     elif angle > 45:
+        #         angle = angle - 90
+        #     h, w = crop.shape[:2]
+        #     M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
+        #     rotated = cv2.warpAffine(crop, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
         # HD Enhancement
-        upscale = cv2.resize(rotated, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        upscale = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
         lab = cv2.cvtColor(upscale, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
         l = cv2.createCLAHE(3.0, (8, 8)).apply(l)
