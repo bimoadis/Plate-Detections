@@ -2,7 +2,7 @@ import os
 import csv
 
 # File input dan output
-input_filename = 'D:\PA-D4-LJ\Plat-Nomor\hasil_deteksi_video\hasil_video.csv'
+input_filename = 'D:\PA-D4-LJ\Plat-Nomor\hasil_deteksi_video2\hasil_video.csv'
 output_filename = 'hasil.csv'
 
 # # Header tetap 11 kolom
