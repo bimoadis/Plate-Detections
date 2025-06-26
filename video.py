@@ -14,7 +14,7 @@ if not video_path:
     exit()
 
 # === 2. SETUP OUTPUT FOLDER ===
-output_folder = "frames_per_10frames_hd_png"
+output_folder = "frames_per_30frames_hd_png"
 if not os.path.exists(output_folder):
     os.makedirs(output_folder)
 
@@ -26,32 +26,32 @@ if not cap.isOpened():
     exit()
 
 fps = cap.get(cv2.CAP_PROP_FPS)
-frame_interval = 30  # Setiap 10 frame
-# frame_interval = int(fps * 1)
+frame_interval = 30  # Setiap 30 frame
 
 # Ambil resolusi asli video
 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-print(f"📹 Resolusi video: {width} x {height} | FPS: {fps:.2f}")
+print(f"📹 Resolusi video asli: {width} x {height} | FPS: {fps:.2f}")
 
 frame_count = 0
 saved_count = 0
 
-# === 4. SIMPAN FRAME PNG HD SETIAP 10 FRAME ===
+# === 4. SIMPAN FRAME DENGAN RESIZE KE HD (1280x720) ===
 while True:
     ret, frame = cap.read()
     if not ret:
         break
 
     if frame_count % frame_interval == 0:
-        filename = os.path.join(output_folder, f"frame_{saved_count:04d}.png")
+        # Resize ke 1280x720 (HD)
+        resized_frame = cv2.resize(frame, (1920, 1080))
 
-        # Simpan langsung tanpa resize, PNG otomatis lossless/HD
-        cv2.imwrite(filename, frame)
+        filename = os.path.join(output_folder, f"frame_{saved_count:04d}.png")
+        cv2.imwrite(filename, resized_frame)
         print(f"✅ Simpan: {filename}")
         saved_count += 1
 
     frame_count += 1
 
 cap.release()
-print("🎉 Selesai menyimpan frame PNG HD setiap 10 frame.")
+print("🎉 Selesai menyimpan frame PNG dengan resolusi HD setiap 30 frame.")
