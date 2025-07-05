@@ -14,7 +14,7 @@ if not video_path:
     exit()
 
 # === 2. SETUP OUTPUT FOLDER ===
-output_folder = "frames_per_30frames_hd_png"
+output_folder = "frames_FM_NotoRuminten"
 if not os.path.exists(output_folder):
     os.makedirs(output_folder)
 
@@ -25,8 +25,9 @@ if not cap.isOpened():
     print("❌ Gagal membuka video.")
     exit()
 
+
 fps = cap.get(cv2.CAP_PROP_FPS)
-frame_interval = 30  # Setiap 30 frame
+frame_interval = 20  # Setiap 30 frame
 
 # Ambil resolusi asli video
 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))

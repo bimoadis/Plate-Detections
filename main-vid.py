@@ -33,7 +33,7 @@ os.makedirs(deteksi_dir, exist_ok=True)
 csv_path = os.path.join(output_dir, "hasil_video.csv")
 
 # === INISIALISASI ===
-model = YOLO("runs2/detect/train/weights/best.pt")  # Ganti path model jika perlu
+model = YOLO("runs11s/detect/train/weights/best.pt")  # Ganti path model jika perlu
 reader = easyocr.Reader(['en'], gpu=False)
 
 # === CSV HEADER ===
@@ -60,7 +60,7 @@ while True:
     if frame_count % frame_interval != 0:
         continue
 
-    results = model.predict(frame, conf=0.3, device="cpu")[0]
+    results = model.predict(frame, conf=0.5, device="cpu")[0]
 
     # Jika ada deteksi
     if results.boxes:

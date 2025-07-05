@@ -33,12 +33,12 @@ os.makedirs(hd_folder, exist_ok=True)
 os.makedirs(thresh_folder, exist_ok=True)
 
 # === 3. LOAD MODEL YOLO ===
-model = YOLO("runs2/detect/train/weights/best.pt")
+model = YOLO("runs11s/detect/train/weights/best.pt")
 
 # === 4. DETEKSI PLAT NOMOR ===
 results = model.predict(
     source=image_path,
-    conf=0.25,
+    conf=0.5,
     save=True,
     device="cuda" if cv2.cuda.getCudaEnabledDeviceCount() > 0 else "cpu"
 )
