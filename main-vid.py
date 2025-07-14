@@ -33,7 +33,7 @@ os.makedirs(deteksi_dir, exist_ok=True)
 csv_path = os.path.join(output_dir, "hasil_video.csv")
 
 # === INISIALISASI ===
-model = YOLO("runs11s/detect/train/weights/best.pt")  # Ganti path model jika perlu
+model = YOLO("best.pt")  # Ganti path model jika perlu
 reader = easyocr.Reader(['en'], gpu=False)
 
 # === CSV HEADER ===

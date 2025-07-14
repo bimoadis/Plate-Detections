@@ -3,7 +3,7 @@ import cv2, os, numpy as np, easyocr, csv
 from datetime import datetime
 from typing import Optional
 
-model = YOLO("runs11s/detect/train/weights/best.pt")
+model = YOLO("best.pt")
 reader = easyocr.Reader(['en'], gpu=False)
 
 def process_video(video_path: str, output_dir: str = "hasil_deteksi_video2") -> str:
