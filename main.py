@@ -2,6 +2,8 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import os, shutil
+import csv
+from fastapi.responses import JSONResponse
 
 # Import fungsi proses
 from detect_plate import process_video
@@ -49,12 +51,37 @@ async def process_video_endpoint(filename: str = Form(...)):
 
 
 # === 3. Ambil CSV hasil deteksi ===
+@app.get("/get-results")
+def get_results():
+    csv_path = os.path.join(OUTPUT_DIR, "hasil_video.csv")
+    if not os.path.exists(csv_path):
+        return {"data": []}
+
+    with open(csv_path, newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        data = list(reader)
+
+    return {"data": data}
+
+
 @app.get("/get-csv")
 def get_csv():
     csv_path = os.path.join(OUTPUT_DIR, "hasil_video.csv")
     if not os.path.exists(csv_path):
         raise HTTPException(status_code=404, detail="CSV tidak ditemukan")
     return FileResponse(csv_path, filename="hasil_video.csv", media_type="text/csv")
+
+from fastapi.responses import FileResponse
+
+@app.get("/images/{folder}/{filename}")
+def get_image(folder: str, filename: str):
+    folder_path = os.path.join(OUTPUT_DIR, folder)
+    file_path = os.path.join(folder_path, filename)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Gambar tidak ditemukan")
+
+    return FileResponse(file_path)
 
 
 # === 4. Clear hasil deteksi (semua file & gambar) ===
@@ -75,3 +102,7 @@ def clear_results():
             deleted.append(sub)
 
     return {"message": f"Hasil terhapus: {', '.join(deleted)}"}
+
+
+
+
