@@ -53,6 +53,7 @@ def get_image(folder, filename):
     return send_from_directory(folder_path, filename)
 
 
+
 @app.route('/clear-results', methods=['DELETE'])
 def clear_results():
     subfolders = ['crop', 'hd', 'threshold', 'deteksi']

@@ -3,7 +3,6 @@ import cv2, os, numpy as np, easyocr, csv
 from datetime import datetime
 from typing import Optional
 
-
 model = YOLO("runs11s/detect/train/weights/best.pt")
 reader = easyocr.Reader(['en'], gpu=False)
 
