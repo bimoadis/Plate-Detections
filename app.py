@@ -39,7 +39,17 @@ def get_results():
         reader = csv.DictReader(f)
         data = list(reader)
 
+    # konversi path ke URL
+    for row in data:
+        if row.get("Crop Path"):
+            row["Crop Path"] = f"/hasil_deteksi_video/crop/{os.path.basename(row['Crop Path'])}"
+        if row.get("HD Path"):
+            row["HD Path"] = f"/hasil_deteksi_video/hd/{os.path.basename(row['HD Path'])}"
+        if row.get("Threshold Path"):
+            row["Threshold Path"] = f"/hasil_deteksi_video/threshold/{os.path.basename(row['Threshold Path'])}"
+
     return jsonify({"data": data})
+
 
 
 @app.route('/get-csv', methods=['GET'])

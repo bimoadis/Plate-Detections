@@ -1,10 +1,13 @@
 from ultralytics import YOLO
-import cv2, os, numpy as np, easyocr, csv
+import cv2, os, numpy as np, csv, pytesseract
 from datetime import datetime
 from typing import Optional
 
+
+# Path ke Tesseract OCR di Windows
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 model = YOLO("runs11s/detect/train/weights/best.pt")
-reader = easyocr.Reader(['en'], gpu=False)
 
 def process_video(video_path: str, output_dir: str = "hasil_deteksi_video") -> str:
     os.makedirs(output_dir, exist_ok=True)
@@ -21,7 +24,7 @@ def process_video(video_path: str, output_dir: str = "hasil_deteksi_video") -> s
             writer = csv.writer(file)
             writer.writerow(["Waktu", "Frame", "Label YOLO", "Conf YOLO",
                              "Crop Path", "HD Path", "Threshold Path",
-                             "OCR HD", "Conf HD", "OCR Threshold", "Conf Threshold"])
+                             "OCR HD", "OCR Threshold"])
 
     cap = cv2.VideoCapture(video_path)
     frame_count = 0
@@ -47,6 +50,7 @@ def process_video(video_path: str, output_dir: str = "hasil_deteksi_video") -> s
                 crop_path = os.path.join(crop_dir, f"crop_{frame_count}_{i+1}.png")
                 cv2.imwrite(crop_path, crop)
 
+                # Rotasi & perbaikan crop (sama seperti sebelumnya)...
                 gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
                 _, thresh_rot = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
                 cnts, _ = cv2.findContours(thresh_rot, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
@@ -81,26 +85,18 @@ def process_video(video_path: str, output_dir: str = "hasil_deteksi_video") -> s
                 thresh_path = os.path.join(thresh_dir, f"thresh_{frame_count}_{i+1}.png")
                 cv2.imwrite(thresh_path, thresh)
 
-                result_hd = reader.readtext(hd)
-                result_t = reader.readtext(thresh)
+                # 🔹 OCR pakai Tesseract
+                text_hd = pytesseract.image_to_string(hd, config="--psm 6")
+                text_thresh = pytesseract.image_to_string(thresh, config="--psm 6")
 
-                texts_hd = [t[1] for t in result_hd if t[2] > 0.5]
-                confs_hd = [t[2] for t in result_hd if t[2] > 0.5]
-                text_hd = ' '.join(texts_hd)
-                avg_hd = sum(confs_hd) / len(confs_hd) if confs_hd else 0
-
-                texts_t = [t[1] for t in result_t if t[2] > 0.5]
-                confs_t = [t[2] for t in result_t if t[2] > 0.5]
-                text_t = ' '.join(texts_t)
-                avg_t = sum(confs_t) / len(confs_t) if confs_t else 0
-
+                # Simpan ke CSV
                 with open(csv_path, 'a', newline='') as file:
                     writer = csv.writer(file)
                     writer.writerow([
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         frame_count, label, f"{conf_yolo:.2f}",
                         crop_path, hd_path, thresh_path,
-                        text_hd, f"{avg_hd:.2f}", text_t, f"{avg_t:.2f}"
+                        text_hd.strip(), text_thresh.strip()
                     ])
 
                 deteksi_path = os.path.join(deteksi_dir, f"deteksi_{frame_count}.jpg")
