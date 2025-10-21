@@ -1,34 +1,76 @@
 from ultralytics import YOLO
-import cv2, os, numpy as np, csv, pytesseract
+import cv2, os, numpy as np, csv
 from datetime import datetime
-from typing import Optional
 
+# =========================================
+# 🔹 Load Model YOLO
+# =========================================
+model_plate = YOLO("runs11s/detect/train/weights/best.pt")   # deteksi plat nomor
+model_ocr = YOLO("OCRCUSTOM2/content/runs/detect/train/weights/best.pt")  # deteksi karakter OCR
 
-# Path ke Tesseract OCR di Windows
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# =========================================
+# 🔹 Fungsi peningkatan kualitas (HD)
+# =========================================
+def enhance_hd(img):
+    """Meningkatkan kualitas gambar agar lebih jelas untuk OCR."""
+    # Resize ke ukuran lebih besar
+    img = cv2.resize(img, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)
 
-model = YOLO("runs11s/detect/train/weights/best.pt")
+    # Sharpening (penajaman)
+    kernel = np.array([[0, -1, 0],
+                       [-1, 5, -1],
+                       [0, -1, 0]])
+    img = cv2.filter2D(img, -1, kernel)
 
+    # Denoise ringan
+    img = cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 21)
+    return img
+
+# =========================================
+# 🔹 Fungsi baca OCR YOLO
+# =========================================
+def run_custom_ocr(image):
+    """Mendeteksi karakter dari gambar menggunakan YOLO OCR custom."""
+    results_ocr = model_ocr.predict(source=image, conf=0.3, device="cpu")[0]
+
+    boxes = results_ocr.boxes.xyxy.cpu().numpy()
+    classes = results_ocr.boxes.cls.cpu().numpy()
+    names = results_ocr.names
+
+    detections = []
+    for box2, cls2 in zip(boxes, classes):
+        x1c, y1c, x2c, y2c = box2
+        detections.append((x1c, names[int(cls2)]))
+
+    # Urutkan karakter dari kiri ke kanan
+    detections = sorted(detections, key=lambda x: x[0])
+    text = "".join([ch for _, ch in detections])
+    return text.strip()
+
+# =========================================
+# 🔹 Fungsi utama
+# =========================================
 def process_video(video_path: str, output_dir: str = "hasil_deteksi_video") -> str:
     os.makedirs(output_dir, exist_ok=True)
     crop_dir = os.path.join(output_dir, "crop")
     hd_dir = os.path.join(output_dir, "hd")
-    thresh_dir = os.path.join(output_dir, "threshold")
     deteksi_dir = os.path.join(output_dir, "deteksi")
-    for d in [crop_dir, hd_dir, thresh_dir, deteksi_dir]:
+
+    for d in [crop_dir, hd_dir, deteksi_dir]:
         os.makedirs(d, exist_ok=True)
 
     csv_path = os.path.join(output_dir, "hasil_video.csv")
     if not os.path.exists(csv_path):
         with open(csv_path, 'w', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow(["Waktu", "Frame", "Label YOLO", "Conf YOLO",
-                             "Crop Path", "HD Path", "Threshold Path",
-                             "OCR HD", "OCR Threshold"])
+            writer.writerow([
+                "Waktu", "Frame", "Label Plat", "Conf YOLO",
+                "OCR Crop", "OCR HD", "Crop Path", "HD Path"
+            ])
 
     cap = cv2.VideoCapture(video_path)
     frame_count = 0
-    frame_interval = 25
+    frame_interval = 25  # proses tiap 25 frame
 
     while True:
         ret, frame = cap.read()
@@ -38,69 +80,64 @@ def process_video(video_path: str, output_dir: str = "hasil_deteksi_video") -> s
         if frame_count % frame_interval != 0:
             continue
 
-        results = model.predict(frame, conf=0.5, device="cpu")[0]
-        if results.boxes:
-            for i, box in enumerate(results.boxes):
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                conf_yolo = float(box.conf[0])
-                cls = int(box.cls[0])
-                label = model.names[cls]
+        # =========================================
+        # 1️⃣ DETEKSI PLAT NOMOR
+        # =========================================
+        results_plate = model_plate.predict(frame, conf=0.5, device="cpu")[0]
+        if not results_plate.boxes:
+            continue
 
-                crop = frame[y1:y2, x1:x2]
-                crop_path = os.path.join(crop_dir, f"crop_{frame_count}_{i+1}.png")
-                cv2.imwrite(crop_path, crop)
+        for i, box in enumerate(results_plate.boxes):
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            conf_yolo = float(box.conf[0])
+            cls = int(box.cls[0])
+            label = model_plate.names[cls]
 
-                # Rotasi & perbaikan crop (sama seperti sebelumnya)...
-                gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-                _, thresh_rot = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-                cnts, _ = cv2.findContours(thresh_rot, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-                rotated = crop.copy()
-                if cnts:
-                    all_cnt = np.vstack(cnts)
-                    rect = cv2.minAreaRect(all_cnt)
-                    angle = rect[-1]
-                    if angle < -45:
-                        angle = 90 + angle
-                    elif angle > 45:
-                        angle = angle - 90
-                    h, w = crop.shape[:2]
-                    M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
-                    rotated = cv2.warpAffine(crop, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+            # =========================================
+            # 2️⃣ Simpan crop
+            # =========================================
+            crop = frame[y1:y2, x1:x2]
+            crop_path = os.path.join(crop_dir, f"crop_{frame_count}_{i+1}.png")
+            cv2.imwrite(crop_path, crop)
 
-                upscale = cv2.resize(rotated, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-                lab = cv2.cvtColor(upscale, cv2.COLOR_BGR2LAB)
-                l, a, b = cv2.split(lab)
-                l = cv2.createCLAHE(3.0, (8, 8)).apply(l)
-                hd = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
-                hd = cv2.filter2D(hd, -1, np.array([[0,-1,0],[-1,5,-1],[0,-1,0]]))
+            # =========================================
+            # 3️⃣ Buat versi HD dan simpan
+            # =========================================
+            hd_crop = enhance_hd(crop)
+            hd_path = os.path.join(hd_dir, f"hd_{frame_count}_{i+1}.png")
+            cv2.imwrite(hd_path, hd_crop)
 
-                hd_path = os.path.join(hd_dir, f"hd_{frame_count}_{i+1}.png")
-                cv2.imwrite(hd_path, hd)
+            # =========================================
+            # 4️⃣ Jalankan OCR pada crop & HD crop
+            # =========================================
+            plate_text_crop = run_custom_ocr(crop)
+            plate_text_hd = run_custom_ocr(hd_crop)
 
-                gray_hd = cv2.cvtColor(hd, cv2.COLOR_BGR2GRAY)
-                blur = cv2.GaussianBlur(gray_hd, (5, 5), 0)
-                thresh = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                               cv2.THRESH_BINARY, 41, 15)
-                thresh = thresh[:int(thresh.shape[0] * 0.75), :]
-                thresh_path = os.path.join(thresh_dir, f"thresh_{frame_count}_{i+1}.png")
-                cv2.imwrite(thresh_path, thresh)
+            # =========================================
+            # 5️⃣ Simpan hasil ke CSV
+            # =========================================
+            with open(csv_path, 'a', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    frame_count, label, f"{conf_yolo:.2f}",
+                    plate_text_crop, plate_text_hd,
+                    crop_path, hd_path
+                ])
 
-                # 🔹 OCR pakai Tesseract
-                text_hd = pytesseract.image_to_string(hd, config="--psm 6")
-                text_thresh = pytesseract.image_to_string(thresh, config="--psm 6")
+            # =========================================
+            # 6️⃣ Simpan frame hasil deteksi
+            # =========================================
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            text_disp = plate_text_hd if plate_text_hd else plate_text_crop
+            cv2.putText(frame, text_disp, (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
-                # Simpan ke CSV
-                with open(csv_path, 'a', newline='') as file:
-                    writer = csv.writer(file)
-                    writer.writerow([
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        frame_count, label, f"{conf_yolo:.2f}",
-                        crop_path, hd_path, thresh_path,
-                        text_hd.strip(), text_thresh.strip()
-                    ])
+            deteksi_path = os.path.join(deteksi_dir, f"deteksi_{frame_count}.jpg")
+            cv2.imwrite(deteksi_path, frame)
 
-                deteksi_path = os.path.join(deteksi_dir, f"deteksi_{frame_count}.jpg")
-                cv2.imwrite(deteksi_path, frame)
+            print(f"[Frame {frame_count}] Plat: {text_disp} | Conf: {conf_yolo:.2f}")
 
     cap.release()
+    print("\n✅ Selesai! Hasil disimpan di:", csv_path)
     return csv_path
