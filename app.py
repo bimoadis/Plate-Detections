@@ -57,11 +57,10 @@ def get_csv():
     return send_from_directory(UPLOAD_FOLDER, "hasil_video.csv", as_attachment=True)
 
 
-@app.route('/images/<folder>/<filename>')
+@app.route('/hasil_deteksi_video/<folder>/<filename>')
 def get_image(folder, filename):
     folder_path = os.path.join(UPLOAD_FOLDER, folder)
     return send_from_directory(folder_path, filename)
-
 
 
 @app.route('/clear-results', methods=['DELETE'])
