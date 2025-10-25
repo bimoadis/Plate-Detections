@@ -6,7 +6,7 @@ from datetime import datetime
 # 🔹 Load Model YOLO
 # =========================================
 model_plate = YOLO("runs11s/detect/train/weights/best.pt")   # deteksi plat nomor
-model_ocr = YOLO("OCRCUSTOM2/content/runs/detect/train/weights/best.pt")  # deteksi karakter OCR
+model_ocr = YOLO("OCRCUSTOMV4/content/runs/detect/train/weights/best.pt")  # deteksi karakter OCR
 
 # =========================================
 # 🔹 Fungsi peningkatan kualitas (HD)
