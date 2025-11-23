@@ -1,69 +1,93 @@
-import pandas as pd
-from openpyxl import Workbook
-from openpyxl.drawing.image import Image as ExcelImage
+# ==================================================
+# 🚗 Text Enhancement Batch (Folder Mode)
+# ==================================================
+import cv2
+import numpy as np
 import os
+from tkinter import Tk, filedialog
 
-# =========================================
-# 1️⃣ KONFIGURASI
-# =========================================
-excel_path = "hasil_deteksi_video/hasil_video.csv"
-output_excel = "hasil_deteksi_video/list_plat_dengan_gambar.xlsx"
+# ==================================================
+# 🔹 Pilih Folder Input & Siapkan Output Folder
+# ==================================================
+root = Tk()
+root.withdraw()
+folder_path = filedialog.askdirectory(title="📁 Pilih folder gambar plat nomor")
+if not folder_path:
+    raise Exception("❌ Tidak ada folder yang dipilih.")
+print(f"📂 Folder input: {folder_path}")
 
-# =========================================
-# 2️⃣ BACA CSV (bukan Excel)
-# =========================================
-df = pd.read_csv(excel_path, sep=";")
+output_dir = os.path.join(folder_path, "output_sharpened")
+os.makedirs(output_dir, exist_ok=True)
+print(f"💾 Folder output: {output_dir}")
 
-# Normalisasi nama kolom (hapus spasi dan jadikan lowercase)
-df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
+# ==================================================
+# 🔹 Fungsi Edge Enhance dan Combo8 (versi perbaikan HR)
+# ==================================================
+def edge_enhance(img):
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0)
+    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1)
+    edges = cv2.magnitude(sobelx, sobely)
+    edges = cv2.normalize(edges, None, 0, 255, cv2.NORM_MINMAX)
+    edges = cv2.cvtColor(edges.astype(np.uint8), cv2.COLOR_GRAY2RGB)
+    return cv2.addWeighted(img, 1.2, edges, 0.3, 0)
 
-# Pastikan kolom yang dibutuhkan ada
-required_cols = ["crop_path", "hd_path"]
-for col in required_cols:
-    if col not in df.columns:
-        raise KeyError(f"❌ Kolom '{col}' tidak ditemukan di CSV! Kolom yang ada: {df.columns.tolist()}")
+def combo8(img):
+    """Edge Enhance ➜ Denoise ➜ Strong Sharpen ➜ Refine HR"""
+    # 1️⃣ Edge Enhancement
+    step1 = edge_enhance(img)
 
-# =========================================
-# 3️⃣ BUAT WORKBOOK BARU
-# =========================================
-wb = Workbook()
-ws = wb.active
-ws.title = "Deteksi Plat"
+    # 2️⃣ Denoise ringan
+    step2 = cv2.fastNlMeansDenoisingColored(step1, None, 5, 5, 7, 21)
 
-# Tulis header
-for idx, col in enumerate(df.columns, start=1):
-    ws.cell(row=1, column=idx, value=col)
+    # 3️⃣ Sharpening kuat tapi seimbang
+    kernel = np.array([
+        [-1, -1, -1, -1, -1],
+        [-1,  2,  2,  2, -1],
+        [-1,  2,  8,  2, -1],
+        [-1,  2,  2,  2, -1],
+        [-1, -1, -1, -1, -1]
+    ]) / 8.0
+    step3 = cv2.filter2D(step2, -1, kernel)
 
-# =========================================
-# 4️⃣ ISI DATA & TAMBAH GAMBAR
-# =========================================
-for i, row in df.iterrows():
-    excel_row = i + 2  # baris ke-2 ke bawah
-    for j, col in enumerate(df.columns, start=1):
-        ws.cell(row=excel_row, column=j, value=row[col])
+    # 4️⃣ CLAHE untuk perbaikan kontras
+    lab = cv2.cvtColor(step3, cv2.COLOR_RGB2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    cl = clahe.apply(l)
+    merged = cv2.merge((cl, a, b))
+    final_hr = cv2.cvtColor(merged, cv2.COLOR_LAB2RGB)
 
-    # Tambah gambar crop
-    crop_path = str(row["crop_path"]).strip()
-    if os.path.exists(crop_path):
-        try:
-            img = ExcelImage(crop_path)
-            img.width, img.height = 120, 60
-            ws.add_image(img, f"{chr(65 + df.columns.get_loc('crop_path'))}{excel_row}")
-        except Exception as e:
-            print(f"⚠️ Gagal menambahkan gambar crop: {e}")
+    # 5️⃣ Detail Enhancement
+    final_hr = cv2.detailEnhance(final_hr, sigma_s=12, sigma_r=0.25)
 
-    # Tambah gambar HD
-    hd_path = str(row["hd_path"]).strip()
-    if os.path.exists(hd_path):
-        try:
-            img = ExcelImage(hd_path)
-            img.width, img.height = 120, 60
-            ws.add_image(img, f"{chr(65 + df.columns.get_loc('hd_path'))}{excel_row}")
-        except Exception as e:
-            print(f"⚠️ Gagal menambahkan gambar HD: {e}")
+    return final_hr
 
-# =========================================
-# 5️⃣ SIMPAN HASIL
-# =========================================
-wb.save(output_excel)
-print(f"✅ File Excel baru dengan gambar tersimpan di:\n{output_excel}")
+# ==================================================
+# 🔹 Proses Semua Gambar dalam Folder
+# ==================================================
+allowed_ext = (".jpg", ".jpeg", ".png", ".bmp")
+
+for filename in os.listdir(folder_path):
+    if filename.lower().endswith(allowed_ext):
+        file_path = os.path.join(folder_path, filename)
+        print(f"🔧 Memproses: {filename}")
+
+        img = cv2.imread(file_path)
+        if img is None:
+            print(f"⚠️ Gagal membaca: {filename}")
+            continue
+
+        # Ubah ke RGB dan perbesar resolusi (HD)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)
+
+        # Terapkan peningkatan (Combo8)
+        sharpened = combo8(img)
+
+        # Simpan hasil
+        save_path = os.path.join(output_dir, f"sharp_{filename}")
+        cv2.imwrite(save_path, cv2.cvtColor(sharpened, cv2.COLOR_RGB2BGR))
+        print(f"✅ Disimpan: {save_path}")
+
+print("\n🎉 Semua gambar berhasil ditingkatkan dan disimpan di:", output_dir)
