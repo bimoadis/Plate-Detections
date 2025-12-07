@@ -219,3 +219,19 @@ for i, (title, image) in enumerate(results.items()):
 
 plt.subplots_adjust(wspace=0.3, hspace=1.0)
 plt.show()
+
+
+# ==================================================
+# 🔹 Simpan Semua Gambar Hasil Sharpening ke Folder
+# ==================================================
+output_dir = "enhanced_outputs"
+os.makedirs(output_dir, exist_ok=True)
+
+for name, image in results.items():
+    # Ubah spasi menjadi underscore agar aman untuk filename
+    filename = name.replace(" ", "_").replace("→", "_").replace("(", "").replace(")", "").replace("→", "_")
+    save_path = os.path.join(output_dir, f"{filename}.png")
+
+    cv2.imwrite(save_path, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+
+print(f"💾 Semua gambar berhasil disimpan ke folder: {output_dir}")
