@@ -38,10 +38,30 @@ from basicsr.archs.rrdbnet_arch import RRDBNet
 from realesrgan import RealESRGANer
 
 # =========================================
+# 🔹 Cek dan Setup CUDA Device
+# =========================================
+def get_device(gpu_id=0):
+    """Mendapatkan device yang tepat (CUDA jika tersedia, CPU jika tidak)"""
+    if torch.cuda.is_available():
+        if gpu_id >= torch.cuda.device_count():
+            print(f"⚠️  PERINGATAN: GPU ID {gpu_id} tidak tersedia, menggunakan GPU 0")
+            gpu_id = 0
+        device_name = torch.cuda.get_device_name(gpu_id)
+        print(f"🎮 Menggunakan GPU {gpu_id} untuk YOLO: {device_name}")
+        return gpu_id  # YOLO menggunakan integer untuk GPU ID
+    else:
+        print("⚠️  PERINGATAN: CUDA tidak tersedia, menggunakan CPU (lambat!)")
+        return "cpu"
+
+# Inisialisasi device
+_device = get_device(0)
+
+# =========================================
 # 🔹 Load Model YOLO
 # =========================================
 model_plate = YOLO("runs11s/detect/train/weights/best.pt")   # deteksi plat nomor
-model_ocr = YOLO("OCRCUSTOMV4/content/runs/detect/train/weights/best.pt")  # deteksi karakter OCR
+model_ocr = YOLO("OCRCUSTOMV5/content/runs/detect/train2/weights/best.pt")
+  # deteksi karakter OCR
 
 # =========================================
 # 🔹 Load Model SR (Real-ESRGAN)
@@ -66,7 +86,7 @@ def get_sr_upsampler(gpu_id=0):
             gpu_id = None
         
         # Path model SR
-        model_path = os.path.join('weights', 'RealESRGAN_x4plus.pth')
+        model_path = os.path.join('weights', 'net_g_latest.pth')
         if not os.path.isfile(model_path):
             print(f"❌ ERROR: Model SR tidak ditemukan di: {model_path}")
             return None
@@ -112,7 +132,7 @@ def enhance_hd(img):
 # =========================================
 def run_custom_ocr(image):
     """Mendeteksi karakter dari gambar menggunakan YOLO OCR custom."""
-    results_ocr = model_ocr.predict(source=image, conf=0.3, device="cpu")[0]
+    results_ocr = model_ocr.predict(source=image, conf=0.3, device=_device)[0]
 
     boxes = results_ocr.boxes.xyxy.cpu().numpy()
     classes = results_ocr.boxes.cls.cpu().numpy()
@@ -149,6 +169,18 @@ def enhance_sr(image, gpu_id=0):
 # 🔹 Fungsi utama
 # =========================================
 def process_video(video_path: str, output_dir: str = "hasil_deteksi_video", gpu_id: int = 0) -> str:
+    """Memproses video untuk deteksi plat nomor dengan CUDA jika tersedia"""
+    global _device
+    
+    # Update device jika gpu_id berbeda
+    if isinstance(_device, int) and _device != gpu_id:
+        _device = get_device(gpu_id)
+    elif not isinstance(_device, int) and torch.cuda.is_available():
+        _device = get_device(gpu_id)
+    
+    print(f"📹 Memproses video: {video_path}")
+    print(f"🔧 Device yang digunakan: {_device}")
+    
     os.makedirs(output_dir, exist_ok=True)
     crop_dir = os.path.join(output_dir, "crop")
     hd_dir = os.path.join(output_dir, "hd")
@@ -165,7 +197,7 @@ def process_video(video_path: str, output_dir: str = "hasil_deteksi_video", gpu_
             writer.writerow([
                 "Waktu", "Frame", "Label Plat", "Conf YOLO",
                 "OCR Crop", "OCR HD", "OCR SR",
-                "Crop Path", "HD Path", "SR Path"
+                "Crop Path", "HD Path", "SR Path", "Deteksi Path"
             ])
 
     cap = cv2.VideoCapture(video_path)
@@ -183,7 +215,7 @@ def process_video(video_path: str, output_dir: str = "hasil_deteksi_video", gpu_
         # =========================================
         # 1️⃣ DETEKSI PLAT NOMOR
         # =========================================
-        results_plate = model_plate.predict(frame, conf=0.5, device="cpu")[0]
+        results_plate = model_plate.predict(frame, conf=0.5, device=_device)[0]
         if not results_plate.boxes:
             continue
 
@@ -230,19 +262,7 @@ def process_video(video_path: str, output_dir: str = "hasil_deteksi_video", gpu_
                 plate_text_sr = run_custom_ocr(sr_crop)
 
             # =========================================
-            # 7️⃣ Simpan hasil ke CSV
-            # =========================================
-            with open(csv_path, 'a', newline='') as file:
-                writer = csv.writer(file)
-                writer.writerow([
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    frame_count, label, f"{conf_yolo:.2f}",
-                    plate_text_crop, plate_text_hd, plate_text_sr,
-                    crop_path, hd_path, sr_path if sr_path else ""
-                ])
-
-            # =========================================
-            # 8️⃣ Simpan frame hasil deteksi
+            # 7️⃣ Simpan frame hasil deteksi
             # =========================================
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             # Prioritas: SR > HD > Crop
@@ -250,8 +270,20 @@ def process_video(video_path: str, output_dir: str = "hasil_deteksi_video", gpu_
             cv2.putText(frame, text_disp, (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
-            deteksi_path = os.path.join(deteksi_dir, f"deteksi_{frame_count}.jpg")
+            deteksi_path = os.path.join(deteksi_dir, f"deteksi_{frame_count}_{i+1}.jpg")
             cv2.imwrite(deteksi_path, frame)
+
+            # =========================================
+            # 8️⃣ Simpan hasil ke CSV
+            # =========================================
+            with open(csv_path, 'a', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    frame_count, label, f"{conf_yolo:.2f}",
+                    plate_text_crop, plate_text_hd, plate_text_sr,
+                    crop_path, hd_path, sr_path if sr_path else "", deteksi_path
+                ])
 
             print(f"[Frame {frame_count}] Plat: {text_disp} | Conf: {conf_yolo:.2f} | OCR: Crop={plate_text_crop}, HD={plate_text_hd}, SR={plate_text_sr}")
 
