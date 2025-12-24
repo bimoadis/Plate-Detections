@@ -46,13 +46,13 @@ def run_detection(video_path, output_dir):
     try:
         detection_status["is_processing"] = True
         detection_status["error"] = None
-        detection_status["message"] = "Memproses deteksi plat nomor..."
+        detection_status["message"] = ""
         
         print(f"🚀 Memulai deteksi untuk: {video_path}")
         hasil_csv = process_video(video_path, output_dir=output_dir, gpu_id=0)
         
         detection_status["is_processing"] = False
-        detection_status["message"] = "✅ Deteksi plat nomor selesai"
+        detection_status["message"] = ""
         detection_status["error"] = None
         print(f"✅ Deteksi selesai: {hasil_csv}")
         
@@ -134,6 +134,8 @@ def get_results():
             row["SR Path"] = f"/{folder_name}/sr/{os.path.basename(row['SR Path'])}"
         if row.get("Threshold Path"):
             row["Threshold Path"] = f"/{folder_name}/threshold/{os.path.basename(row['Threshold Path'])}"
+        if row.get("Deteksi Path"):
+            row["Deteksi Path"] = f"/{folder_name}/deteksi/{os.path.basename(row['Deteksi Path'])}"
 
     return jsonify({"data": data})
 
@@ -156,6 +158,61 @@ def get_image(folder_name, folder, filename):
     return send_from_directory(folder_path, filename)
 
 
+@app.route('/get-metrics', methods=['GET'])
+def get_metrics():
+    """Mengambil metrik evaluasi OCR dari file metrics_evaluasi.txt"""
+    metrics_file = os.path.join(UPLOAD_FOLDER, "metrics_evaluasi.txt")
+    
+    if not os.path.exists(metrics_file):
+        return jsonify({
+            "error": "File metrik evaluasi tidak ditemukan",
+            "metrics": None
+        }), 404
+    
+    try:
+        # Parse file metrics_evaluasi.txt
+        metrics = {
+            'crop': {'precision': 0.0, 'recall': 0.0, 'f1_score': 0.0},
+            'hd': {'precision': 0.0, 'recall': 0.0, 'f1_score': 0.0},
+            'sr': {'precision': 0.0, 'recall': 0.0, 'f1_score': 0.0}
+        }
+        
+        with open(metrics_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            for line in lines:
+                line = line.strip()
+                # Format: "OCR Crop            85.50              82.30              83.88"
+                if 'OCR Crop' in line and not line.startswith('Metode'):
+                    # Split dan ambil nilai numerik
+                    parts = [p for p in line.split() if p.replace('.', '').isdigit()]
+                    if len(parts) >= 3:
+                        metrics['crop']['precision'] = float(parts[0])
+                        metrics['crop']['recall'] = float(parts[1])
+                        metrics['crop']['f1_score'] = float(parts[2])
+                elif 'OCR HD' in line and not line.startswith('Metode'):
+                    parts = [p for p in line.split() if p.replace('.', '').isdigit()]
+                    if len(parts) >= 3:
+                        metrics['hd']['precision'] = float(parts[0])
+                        metrics['hd']['recall'] = float(parts[1])
+                        metrics['hd']['f1_score'] = float(parts[2])
+                elif 'OCR SR' in line and not line.startswith('Metode'):
+                    parts = [p for p in line.split() if p.replace('.', '').isdigit()]
+                    if len(parts) >= 3:
+                        metrics['sr']['precision'] = float(parts[0])
+                        metrics['sr']['recall'] = float(parts[1])
+                        metrics['sr']['f1_score'] = float(parts[2])
+        
+        return jsonify({
+            "metrics": metrics,
+            "message": "Metrik evaluasi berhasil diambil"
+        })
+    except Exception as e:
+        return jsonify({
+            "error": f"Error membaca file metrik: {str(e)}",
+            "metrics": None
+        }), 500
+
+
 @app.route('/clear-results', methods=['DELETE'])
 def clear_results():
     subfolders = ['crop', 'hd', 'sr', 'threshold', 'deteksi']
@@ -172,6 +229,12 @@ def clear_results():
     if os.path.exists(csv_path):
         os.remove(csv_path)
         deleted.append('CSV')
+    
+    # Hapus file metrics juga
+    metrics_file = os.path.join(UPLOAD_FOLDER, 'metrics_evaluasi.txt')
+    if os.path.exists(metrics_file):
+        os.remove(metrics_file)
+        deleted.append('Metrics')
 
     return jsonify({"message": f"Data dihapus: {', '.join(deleted)}"})
 
