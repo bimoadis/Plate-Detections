@@ -14,7 +14,9 @@ app = Flask(__name__)
 CORS(app)
 
 UPLOAD_FOLDER = os.getenv("OUTPUT_DIR", "hasil_deteksi_video2")
+VIDEO_FOLDER = os.path.join(UPLOAD_FOLDER, "uploaded_videos")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(VIDEO_FOLDER, exist_ok=True)
 
 # Status tracking untuk deteksi
 detection_status = {
@@ -29,16 +31,42 @@ def upload_video():
         return jsonify({"error": "Tidak ada file"}), 400
 
     file = request.files['file']
-    filename = secure_filename(file.filename)
-    temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{filename}")
-    file.save(temp_path)
+    if file.filename == '':
+        return jsonify({"error": "Tidak ada file yang dipilih"}), 400
+    
+    # Generate filename dengan timestamp untuk menghindari duplikasi
+    from datetime import datetime
+    original_filename = secure_filename(file.filename)
+    name, ext = os.path.splitext(original_filename)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    saved_filename = f"{name}_{timestamp}{ext}"
+    
+    # Simpan video di folder uploaded_videos
+    video_path = os.path.join(VIDEO_FOLDER, saved_filename)
+    file.save(video_path)
     
     # Simpan path video untuk deteksi nanti
     video_path_file = os.path.join(UPLOAD_FOLDER, "current_video.txt")
     with open(video_path_file, 'w') as f:
-        f.write(temp_path)
+        f.write(video_path)
     
-    return jsonify({"message": "✅ Video berhasil diupload", "filename": filename})
+    # Simpan info video untuk akses nanti
+    video_info = {
+        "filename": saved_filename,
+        "original_filename": original_filename,
+        "path": video_path,
+        "uploaded_at": datetime.now().isoformat()
+    }
+    import json
+    video_info_file = os.path.join(UPLOAD_FOLDER, "current_video_info.json")
+    with open(video_info_file, 'w') as f:
+        json.dump(video_info, f)
+    
+    return jsonify({
+        "message": "✅ Video berhasil diupload dan disimpan",
+        "filename": saved_filename,
+        "original_filename": original_filename
+    })
 
 def run_detection(video_path, output_dir):
     """Jalankan deteksi di background thread"""
@@ -111,6 +139,71 @@ def detect_status():
     global detection_status
     return jsonify(detection_status)
 
+@app.route('/get-current-video', methods=['GET'])
+def get_current_video():
+    """Mendapatkan informasi video yang sedang aktif"""
+    import json
+    video_info_file = os.path.join(UPLOAD_FOLDER, "current_video_info.json")
+    video_path_file = os.path.join(UPLOAD_FOLDER, "current_video.txt")
+    
+    # Cek apakah ada video info
+    if os.path.exists(video_info_file):
+        try:
+            with open(video_info_file, 'r') as f:
+                video_info = json.load(f)
+            
+            # Cek apakah file video masih ada
+            if os.path.exists(video_info.get("path", "")):
+                # Generate URL untuk video
+                folder_name = os.path.basename(UPLOAD_FOLDER)
+                video_url = f"/{folder_name}/uploaded_videos/{video_info['filename']}"
+                return jsonify({
+                    "exists": True,
+                    "video_info": video_info,
+                    "video_url": video_url
+                })
+        except Exception as e:
+            print(f"Error reading video info: {e}")
+    
+    # Fallback: cek current_video.txt
+    if os.path.exists(video_path_file):
+        try:
+            with open(video_path_file, 'r') as f:
+                video_path = f.read().strip()
+            if os.path.exists(video_path):
+                filename = os.path.basename(video_path)
+                folder_name = os.path.basename(UPLOAD_FOLDER)
+                video_url = f"/{folder_name}/uploaded_videos/{filename}"
+                return jsonify({
+                    "exists": True,
+                    "video_info": {
+                        "filename": filename,
+                        "path": video_path
+                    },
+                    "video_url": video_url
+                })
+        except Exception as e:
+            print(f"Error reading video path: {e}")
+    
+    return jsonify({"exists": False})
+
+@app.route('/<folder_name>/uploaded_videos/<filename>')
+def get_uploaded_video(folder_name, filename):
+    """Serve uploaded video file"""
+    if folder_name != os.path.basename(UPLOAD_FOLDER):
+        return jsonify({"error": "Invalid folder"}), 404
+    
+    video_path = os.path.join(VIDEO_FOLDER, filename)
+    if not os.path.exists(video_path):
+        return jsonify({"error": "Video not found"}), 404
+    
+    response = send_from_directory(VIDEO_FOLDER, filename)
+    # Add CORS headers for video requests
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+    return response
+
 
 @app.route('/get-results', methods=['GET'])
 def get_results():
@@ -155,7 +248,13 @@ def get_image(folder_name, folder, filename):
     folder_path = os.path.join(UPLOAD_FOLDER, folder)
     if not os.path.exists(folder_path):
         return jsonify({"error": "Folder not found"}), 404
-    return send_from_directory(folder_path, filename)
+    
+    response = send_from_directory(folder_path, filename)
+    # Add CORS headers for image requests
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+    return response
 
 
 @app.route('/get-metrics', methods=['GET'])
@@ -235,6 +334,12 @@ def clear_results():
     if os.path.exists(metrics_file):
         os.remove(metrics_file)
         deleted.append('Metrics')
+    
+    # Hapus current_video.txt tapi JANGAN hapus video yang sudah diupload
+    video_path_file = os.path.join(UPLOAD_FOLDER, "current_video.txt")
+    if os.path.exists(video_path_file):
+        os.remove(video_path_file)
+        deleted.append('Current Video Path')
 
     return jsonify({"message": f"Data dihapus: {', '.join(deleted)}"})
 
